@@ -1,0 +1,28 @@
+{
+  "name": "opencode-advisor",
+  "version": "0.1.0",
+  "description": "Advisor-pattern model routing plugin for OpenCode — routes sub-agent tasks to the right model tier",
+  "main": "./index.ts",
+  "module": "./index.ts",
+  "keywords": [
+    "opencode",
+    "plugin",
+    "advisor",
+    "model-routing"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jwh9456/opencode-advisor"
+  },
+  "files": [
+    "index.ts",
+    "examples/"
+  ],
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.4.3"
+  }
+}

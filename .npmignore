@@ -1,0 +1,13 @@
+# Dev-only directories
+.opencode/
+_workspace/
+docs/
+
+# Git/CI
+.git/
+.github/
+.gitignore
+
+# Misc
+*.log
+node_modules/
