@@ -1,8 +1,10 @@
 # opencode-advisor
 
-Advisor-pattern model routing plugin for [OpenCode](https://opencode.ai).
+Advisor tool plugin for [OpenCode](https://opencode.ai).
 
-Routes sub-agent tasks to the right model tier — so complex work gets a powerful model and simple lookups get a fast one.
+Adds an explicit `advisor` tool that consults a stronger model in a temporary forked session and returns concise strategic guidance.
+
+This is an **advisor-pattern approximation**, not Claude's native server-side advisor API.
 
 ## Install
 
@@ -18,55 +20,119 @@ Add to `~/.config/opencode/opencode.jsonc` (or your project's `.opencode/opencod
 }
 ```
 
-## Setup agents
+## Quick start
 
-The plugin routes to three custom agents you define. Copy the examples into your project:
+1. Install the plugin.
+2. Create `.opencode/plugins/advisor-config.json`.
+3. Set `advisorModel` to the stronger model you want to consult.
+4. Start opencode normally — the plugin will inject guidance telling the model when to call `advisor`.
 
-```bash
-mkdir -p .opencode/agents
-cp node_modules/opencode-advisor/examples/powerful.md  .opencode/agents/
-cp node_modules/opencode-advisor/examples/balanced.md  .opencode/agents/
-cp node_modules/opencode-advisor/examples/fast.md      .opencode/agents/
+### Typical usage
+
+The model will usually call the tool with inputs like:
+
+```json
+{
+  "question": "Before I refactor this module, what decomposition approach is safest?",
+  "context": "Current module mixes parsing, validation, and persistence. I already found circular dependencies between parser.ts and repository.ts."
+}
 ```
 
-Edit the `model:` field in each file to match your provider (e.g. `anthropic/claude-sonnet-4-20250514`).
+## How it works
 
-## Modes
+The plugin registers a custom `advisor` tool.
 
-### Advisor mode (default)
+When the model calls `advisor`, the plugin:
 
-All `general` sub-agent tasks go to the **balanced** executor. The model can escalate to **powerful** when it needs strategic guidance. Keyword guardrails force escalation/simplification at the edges.
+1. forks the current session at the current message,
+2. sends a focused prompt to a stronger model,
+3. returns the advisor's text back as a tool result,
+4. deletes the temporary advisor session.
 
-### Routing mode
+This gives you a practical advisor workflow inside opencode without patching core internals.
 
-Keyword-based weighted scoring assigns tasks to **powerful**, **balanced**, or **fast** based on prompt content and token volume.
-
-Switch modes:
-
-```bash
-ADVISOR_MODE=routing opencode
+```text
+parent session
+  └─ advisor tool call
+      ├─ fork current session
+      ├─ prompt stronger model
+      ├─ collect text response
+      └─ delete temporary advisor session
 ```
 
-## Configuration (optional)
+## Configuration
 
-Place `advisor-config.json` in `.opencode/plugins/`:
+Place `advisor-config.json` in `.opencode/plugins/`.
 
-```bash
-cp node_modules/opencode-advisor/examples/advisor-config.json .opencode/plugins/
+Example:
+
+```json
+{
+  "advisorModel": "anthropic/claude-opus-4-5",
+  "advisorSystem": null,
+  "maxAdvisorCalls": 10,
+  "debug": false
+}
 ```
 
-See the file for all options (keywords, tiers, escalation/simplification rules).
+### Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `advisorModel` | `string \| null` | Model to use in `provider/model` format. If `null`, the forked session uses its default model. |
+| `advisorSystem` | `string \| null` | Optional custom system prompt for the advisor session. |
+| `maxAdvisorCalls` | `number` | Per-session call budget. `0` means unlimited. |
+| `debug` | `boolean` | Print initialization and advisor call logs. |
+
+### Example model setups
+
+```json
+{ "advisorModel": "anthropic/claude-opus-4-5" }
+```
+
+```json
+{ "advisorModel": "github-copilot/claude-opus-4.6" }
+```
+
+```json
+{ "advisorModel": "openai/o3" }
+```
 
 ## Environment variables
 
 | Variable | Values | Description |
 |---|---|---|
-| `ADVISOR_MODE` | `advisor` \| `routing` | Switch routing strategy |
-| `ADVISOR_AGENT_HIGH` | agent name | Override high-tier agent |
-| `ADVISOR_AGENT_MEDIUM` | agent name | Override medium-tier agent |
-| `ADVISOR_AGENT_LOW` | agent name | Override low-tier agent |
-| `ADVISOR_FORCE_INHERIT` | `true` | Disable routing — sub-agents inherit parent model |
-| `ADVISOR_DEBUG` | `true` | Log routing decisions to console |
+| `ADVISOR_MODEL` | `provider/model` | Override `advisorModel` |
+| `ADVISOR_SYSTEM` | string | Override `advisorSystem` |
+| `ADVISOR_MAX_CALLS` | integer | Override per-session advisor call budget |
+| `ADVISOR_DEBUG` | `true` | Enable debug logging |
+
+## Usage notes
+
+- The plugin injects a system prompt telling the model when to call `advisor`.
+- `advisor` is best used before committing to an approach, when stuck, or before finalizing work.
+- No custom agent files are required for this plugin.
+- The per-session advisor call budget is cleared automatically when the session is deleted.
+- This plugin does **not** provide Claude-native `advisor_tool_result`, single-request sub-inference, or native advisor billing semantics.
+
+## Limitations
+
+- Each advisor call is an extra session round-trip.
+- The advisor runs in a forked opencode session, not inside the provider's native server-side tool loop.
+- Native Claude advisor API behavior is out of scope without opencode core/provider support.
+
+## Development
+
+Run tests with:
+
+```bash
+bun test
+```
+
+## Packaging note
+
+This package is intended for the opencode/Bun plugin loader.
+The published entrypoint intentionally points to `index.ts` rather than a separate transpiled CommonJS build.
 
 ## License
 
