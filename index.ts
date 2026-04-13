@@ -8,6 +8,7 @@
 
 import { type Plugin, type ToolContext, tool } from "@opencode-ai/plugin"
 import { readFileSync } from "fs"
+import { homedir } from "os"
 import { join } from "path"
 
 type AdvisorConfig = {
@@ -41,6 +42,8 @@ type RequestErrorLike = {
 
 type AdvisorArgs = {
   question: string
+  blocker: string
+  attempted: string
   context?: string
 }
 
@@ -52,7 +55,7 @@ const DEFAULT_ADVISOR_SYSTEM =
 const DEFAULT_CONFIG: AdvisorConfig = {
   advisorModel: null,
   advisorSystem: null,
-  maxAdvisorCalls: 0,
+  maxAdvisorCalls: 1,
   debug: false,
 }
 
@@ -81,6 +84,39 @@ function normalizeConfig(value: unknown): AdvisorConfig {
   }
 }
 
+function normalizeConfigOverride(value: unknown): Partial<AdvisorConfig> {
+  if (!isRecord(value)) return {}
+
+  const override: Partial<AdvisorConfig> = {}
+
+  if (typeof value.advisorModel === "string" || value.advisorModel === null) {
+    override.advisorModel = value.advisorModel
+  }
+
+  if (typeof value.advisorSystem === "string" || value.advisorSystem === null) {
+    override.advisorSystem = value.advisorSystem
+  }
+
+  if (typeof value.maxAdvisorCalls === "number" && value.maxAdvisorCalls >= 0) {
+    override.maxAdvisorCalls = value.maxAdvisorCalls
+  }
+
+  if (typeof value.debug === "boolean") {
+    override.debug = value.debug
+  }
+
+  return override
+}
+
+function readConfigOverride(path: string): Partial<AdvisorConfig> {
+  try {
+    const raw = readFileSync(path, "utf-8")
+    return normalizeConfigOverride(JSON.parse(raw) as unknown)
+  } catch {
+    return {}
+  }
+}
+
 function parseModelString(value: string | null): ParsedModel | undefined {
   if (!value) return undefined
   const [providerID, ...rest] = value.split("/")
@@ -92,6 +128,8 @@ function parseModelString(value: string | null): ParsedModel | undefined {
 export function buildAdvisorPrompt(args: AdvisorArgs): string {
   const blocks = [
     `Question:\n${args.question.trim()}`,
+    `Blocker:\n${args.blocker.trim()}`,
+    `What I already tried:\n${args.attempted.trim()}`,
   ]
 
   if (args.context?.trim()) {
@@ -143,16 +181,14 @@ export function resetAdvisorCounter(sessionId?: string): void {
   _advisorCallCounts.clear()
 }
 
-export function loadConfig(dir: string): AdvisorConfig {
-  const path = join(dir, ".opencode", "plugins", "advisor-config.json")
-  let cfg: AdvisorConfig
-
-  try {
-    const raw = readFileSync(path, "utf-8")
-    cfg = normalizeConfig(JSON.parse(raw) as unknown)
-  } catch {
-    cfg = { ...DEFAULT_CONFIG }
-  }
+export function loadConfig(dir: string, homeDir = homedir()): AdvisorConfig {
+  const globalPath = join(homeDir, ".config", "opencode", "plugins", "advisor-config.json")
+  const localPath = join(dir, ".opencode", "plugins", "advisor-config.json")
+  let cfg = normalizeConfig({
+    ...DEFAULT_CONFIG,
+    ...readConfigOverride(globalPath),
+    ...readConfigOverride(localPath),
+  })
 
   if (process.env.ADVISOR_MODEL) cfg.advisorModel = process.env.ADVISOR_MODEL
   if (process.env.ADVISOR_SYSTEM !== undefined) {
@@ -174,12 +210,18 @@ export function parseModel(value: string | null): ParsedModel | undefined {
 export function createAdvisorTool(pluginCtx: PluginContext, cfg: AdvisorConfig, advisorSessionIDs: Set<string>) {
   return tool({
     description:
-      "Consult a stronger advisor model for strategic guidance before choosing an approach, when stuck, or before finishing.",
+      "Consult a stronger advisor model only when genuinely blocked after trying to proceed yourself.",
     args: {
       question: tool.schema.string().describe("The specific question or decision that needs guidance."),
+      blocker: tool.schema.string().describe("The exact blocker preventing progress right now."),
+      attempted: tool.schema.string().describe("What you already tried before asking for advisor help."),
       context: tool.schema.string().optional().describe("Optional supporting context, evidence, or constraints."),
     },
     execute: async (args: AdvisorArgs, toolCtx: ToolContext) => {
+      if (!args.question.trim() || !args.blocker.trim() || !args.attempted.trim()) {
+        return "[advisor skipped: use advisor only when blocked; include question, blocker, and attempted approaches]"
+      }
+
       if (advisorSessionIDs.has(toolCtx.sessionID)) {
         return "[advisor unavailable: recursive advisor call blocked]"
       }
@@ -312,8 +354,11 @@ export const AdvisorPlugin: Plugin = async (pluginCtx) => {
 
       output.system.push(
         `You have access to an \`advisor\` tool backed by a stronger model.\n` +
-          `Call it BEFORE substantive work, when stuck, or before declaring done.\n` +
-          `Pass a specific question and the relevant context.\n` +
+          `Use it ONLY when you are genuinely blocked after attempting to proceed yourself.\n` +
+          `Do NOT call it for routine implementation, initial planning, simple edits, or final polishing.\n` +
+          `Before calling, first try your own reasoning and at least one concrete approach.\n` +
+          `When calling, include the exact blocker, what you tried, and the specific decision you need help with.\n` +
+          `Usually call it at most once per task unless a new blocker appears.\n` +
           `The advisor returns concise strategic advice only and does not execute tools or produce the final deliverable.`,
       )
 
