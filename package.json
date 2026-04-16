@@ -1,6 +1,6 @@
 {
   "name": "opencode-advisor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Advisor tool plugin for OpenCode — consults a stronger model in a forked session and returns concise guidance",
   "main": "./index.ts",
   "module": "./index.ts",
@@ -16,7 +16,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/jwh9456/opencode-advisor"
+    "url": "git+https://github.com/jwh9456/opencode-advisor.git"
   },
   "files": [
     "index.ts"
